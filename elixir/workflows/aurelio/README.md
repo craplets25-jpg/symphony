@@ -1,14 +1,20 @@
-# Aurelio Codespace operator guide
+# Aurelio development runner
 
-This is a manually supervised Symphony runner for the Aurelio Linear project.
-It is currently restricted to the read-only SHO-1 pilot. It does not start on
-Codespace boot and is not a 24/7 service. Codespaces can stop after inactivity.
+This manually supervised Symphony runner handles authorized issues in the
+Aurelio Linear project. It uses the tested PR #2 app-server/checkouts foundation;
+there is no second scheduler, automatic startup daemon or Shopify deployment.
+Codespaces can stop after inactivity and are not a 24/7 hosting service.
 
-## Restore the runtime
+See [LIFECYCLE-EVIDENCE.md](LIFECYCLE-EVIDENCE.md) for actual integration results
+and [DEPENDENCY-REVIEW.md](DEPENDENCY-REVIEW.md) for remaining advisory exposure.
 
-From the Symphony fork's `elixir` directory, install mise from its official
-installer at <https://mise.jdx.dev/getting-started.html> if absent. Review the
-downloaded installer before running it. Then:
+## Restore after restart or rebuild
+
+Use the Symphony fork's `elixir` directory. Install mise from its official
+installer if missing, reviewing the downloaded script before running it.
+Restore the Symphony fork's `main` branch, which includes the first-worker
+runner and complete development lifecycle. Before updating an existing checkout,
+inspect git status and preserve any local work; fetch and fast-forward main.
 
 ```sh
 export PATH="$HOME/.local/bin:$PATH"
@@ -20,136 +26,161 @@ mise exec -- mix setup
 mise exec -- mix build
 mise exec -- make all
 python3 -m unittest discover -s workflows/aurelio -p test_runner.py
-```
-
-`mise.toml` selects OTP 28 and Elixir 1.19.5 for OTP 28. The verified OTP patch
-is recorded in the setup evidence. Restore dependencies after a rebuild; do
-not copy caches or sessions into Git. Review `git status` and fetch the fork
-before updating, preserving local changes. Do not reset an issue checkout to
-make it appear clean.
-
-## Credentials and preflight
-
-Keep `LINEAR_API_KEY` and `CODEX_ACCESS_TOKEN` in Codespaces secrets. Prefer
-ChatGPT authentication; this runner does not use a Platform API key. Confirm
-presence without printing values:
-
-```sh
-python3 -c 'import os; [print(k, "SET" if os.environ.get(k) else "MISSING") for k in ("LINEAR_API_KEY", "CODEX_ACCESS_TOKEN", "AURELIO_REPO_TOKEN")]'
-python3 workflows/aurelio/probe.py
+python3 workflows/aurelio/runner.py skills
+python3 workflows/aurelio/probe.py --skills
 mise exec -- mix run --no-start workflows/aurelio/preflight.exs
 ```
 
-The probe must complete an actual app-server turn returning READY; initialization
-and stored-login status are insufficient. It excludes unrelated secrets, uses
-a disposable read-only workspace, and stops its child process group.
+The pinned runtime is OTP 28 and Elixir 1.19.5 for OTP 28. Restore dependencies
+rather than copying credential/session caches. Inspect git status and fetch
+updates before applying them; preserve existing user and issue work.
 
-Preflight validates the workflow, authenticates via Symphony's own
-`linear_graphql` binding, checks all 15 project issues for zero eligibility,
-performs native active/terminal-state reads and exercises the actual
-`Workspace.create_for_issue`/`after_create` path. It removes only the disposable
-workspace it just created. It does not start a scheduler or mutate Linear.
+The `skills` command idempotently installs five symlinks in
+`~/.agents/skills/aurelio-{linear,commit,pull,push,land}`, each pointing to the
+unchanged upstream skill directory in this checkout's `.codex/skills`.
+It preserves unrelated existing paths and refuses conflicts. Launcher and worker
+both ensure installation before app-server starts. There are no discovery files
+or untracked skill copies in an Aurelio checkout. After a rebuild, rerun this
+command against the restored Symphony checkout. The isolated `skills/list` probe
+must find exactly one enabled copy of each name; resolve collisions explicitly.
 
-The checkout hook first uses `AURELIO_REPO_TOKEN` when supplied; otherwise it
-uses the existing GitHub CLI authorization for that command. Prefer a
-fine-grained token for this exact repository with Contents: read, or supported
-Codespaces additional-repository read access. Declaring additional permissions
-in a devcontainer does not retroactively grant them to an existing Codespace.
-The credential helper returns a token only for HTTPS and the exact Aurelio
-repository path. Git URLs and repository config contain no token. The hook
-clones `main`, fetches it, fast-forwards and logs the baseline SHA in a new
-issue workspace. It refuses to overwrite existing files.
+The probe injects all five actual skill items in a real inference turn, reads
+Aurelio metadata through the connected native GitHub plugin and requires a
+completed READY response. Initialization or stored-login status alone is not a
+pass. Preflight uses Symphony's native `linear_graphql` binding and tracker reads,
+checks project/gate/concurrency/sandbox, and exercises `Workspace.create_for_issue`
+and the checkout hook. It removes only its own disposable preflight checkout and
+requires no issue to be marked for execution. It does not dispatch or mutate Linear.
 
-The worker environment is an allowlist. It retains Codex authentication,
-ordinary runtime paths and proxy/certificate settings; it excludes Linear,
-Shopify, GitHub, source-repository and unrelated secrets. Linear operations
-use Symphony's host-side dynamic tool. This tool's API access is limited by
-the token's permissions, not by the project slug; the prompt also confines it
-to SHO-1. The label is a scheduler gate, not a general Linear authorization boundary.
+## Authentication and boundaries
 
-The wrapper sets Codespaces' non-secret `SHELL_LOGGED_IN=true` marker. Without
-it, the Codespace login profile redirects Symphony's hook and worker shells
-to the original source repository. A regression test checks a real login shell
-stays inside its issue workspace. Do not remove this marker from the filter.
+Keep LINEAR_API_KEY, CODEX_ACCESS_TOKEN and AURELIO_REPO_TOKEN in Codespaces
+secrets. Confirm presence with boolean-only checks, never environment dumps.
+Use ChatGPT/Codex authentication, not a new Platform API key. Keep the connected
+native GitHub plugin available to the account used by the Codex worker.
 
-Rotate credentials in Codespaces secret settings, restart the terminal or
-Codespace so the process receives the replacements, and repeat both probes.
-Never print tokens, copy auth caches, or put credential literals in a workflow.
+- **Tracker:** LINEAR_API_KEY stays host-side; workers use the injected
+  linear_graphql tool. Raw tool access is token-scoped, not project-sandboxed,
+  so the workflow restricts mutations to the assigned issue/workpad/attachment.
+- **Git transport:** the dedicated Aurelio token must permit Contents read/write
+  for craplets25-jpg/aurelio-trade. A worker receives it only as GH_TOKEN, with
+  GH_REPO fixed to that repository. The process-local Git credential helper
+  supplies it only for the exact HTTPS Aurelio path. No token enters Git URLs,
+  command arguments or persisted repository/global configuration.
+- **PR/review/merge:** use the connected native GitHub plugin. The current Git
+  token can legitimately reject PR API access; do not broaden it merely to make
+  gh PR commands work. The native plugin must independently prove its read/write
+  capabilities. Skills retain their workflow, with native tool equivalents for
+  GitHub API steps instead of a second PR manager.
+- **Excluded:** host Linear, Shopify, ordinary Codespace GITHUB_TOKEN and unrelated
+  secrets are not inherited by the worker. Only necessary Codex/Git authentication
+  and runtime/proxy/certificate variables are allowed. This is an environment
+  boundary, not a claim that raw tools or all host files are project-scoped.
+
+The Codespaces non-secret SHELL_LOGGED_IN marker stays set; otherwise login
+profiles redirect hooks/worker shells back to the Symphony source directory.
+The real-login-shell regression test protects this behavior.
+
+Rotate secrets in Codespaces settings, refresh the terminal/runtime, and rerun
+probes. Newly declared additional-repository devcontainer permissions do not
+grant access retroactively to an existing Codespace. Do not copy auth stores
+or put credentials into scripts, Git, comments or screenshots.
 
 ## Start, observe and stop
-
-Keep all issues ineligible for the first observation run:
 
 ```sh
 python3 workflows/aurelio/runner.py start --port 4010 --logs-root ./log/aurelio
 ```
 
-This foreground launcher supplies the executable's required prototype
-acknowledgment flag; the explicit read-only sandbox and approval policy still
-apply. The dashboard listens at `127.0.0.1:4010`; leave any Codespaces port
-forwarding private. Do not expose this unauthenticated API publicly.
-
-In another terminal:
+The foreground launcher supplies Symphony's required prototype acknowledgment;
+the workspace-write sandbox and on-request policy still apply. Explicit turn
+policy enables network access, with writable scope resolved from the issue cwd.
+The worker selects Codex's supported automatic approvals reviewer. Ordinary
+Git metadata writes still require sandbox escalation; the reviewer evaluates
+them against the authorized issue instead of leaving Symphony waiting for an
+interactive prompt. A denial must be recorded and handed off, not bypassed.
+The checkout hook clones/fetches main, records its SHA, and preserves isolated
+workspaces. Fetch refs and use one issue feature branch; never commit on main.
+Existing issue workspaces survive review/restart and must not be reset blindly.
 
 ```sh
 curl --fail --silent http://127.0.0.1:4010/api/v1/state
-curl --fail --silent http://127.0.0.1:4010/api/v1/SHO-1
+curl --fail --silent http://127.0.0.1:4010/api/v1/SHO-17
 ```
 
-Save timestamped API snapshots and sanitized logs under `elixir/log/`, which
-Git ignores. Capture real dashboard screenshots if an existing browser is
-available; otherwise retain API evidence and state clearly that no screenshot
-was taken. Review artifacts before attaching them to Linear. Never attach
-the Codex home, auth cache, full environment or unreviewed transcripts.
+Keep the dashboard/API on loopback. Any Codespaces forwarding must remain
+private. Save reviewed timestamped API snapshots and sanitized logs under
+`elixir/log/` (ignored by Git); attach evidence to the private Linear workpad.
+Use screenshots if an existing browser is available; never invent screenshots.
 
-Stop with Ctrl-C in the foreground terminal; confirm the process exits. Check
-for surviving `beam.smp` and worker `codex` processes and verify their PIDs and
-parentage before terminating only this run's children. An operator supervising
-through a script should create a new process group, send SIGTERM to that group,
-wait, and use SIGKILL only if that same group fails to stop. Do not kill the
-Codespace's unrelated Codex host process.
+Stop with Ctrl-C, then verify the runner and its child PIDs exited and the port
+closed. A supervising script should track descendants as well as its process
+group: Erlang ports may have separate groups. Terminate only this run's remaining
+children after identifying them; leave the Codespace's unrelated Codex host alone.
 
-## Approve exactly one issue
+## Issue, PR and review lifecycle
 
-Only after inference, checkout and no-dispatch polling pass, re-read SHO-1's
-project, description, blockers, labels and existing workpad. The authorized
-first task is read-only baseline/workflow research. Change SHO-1 to Todo and
-add `symphony-dispatch-approved`; preserve other labels. Verify no other issue
-is eligible, then launch and observe exactly one claim and app-server session.
+All execution requires the exact project, active state and
+`symphony-dispatch-approved`. Keep concurrency one. Use the actual existing
+team status names (including spaces); no extra Linear statuses are required.
 
-Use existing workpad `46e92d8e-a949-4bdd-b7a4-3f9975581926`. Preserve historical
-observations and add the current environment and sourced findings. Completed
-deliverables go to In Review with the dispatch label removed in the same issue
-update. Verify this in Linear before stopping. Done requires owner acceptance.
+| Phase | Durable tracker representation |
+| --- | --- |
+| Ready | Todo + dispatch label |
+| Working | In Progress + dispatch label |
+| Review | In Review, dispatch removed; workpad links exact PR/head and checks |
+| Rework | Todo + dispatch + symphony-rework-required; reuse branch/PR |
+| Merge-only | Todo/In Progress + dispatch + symphony-merge-approved; workpad names approved head SHA |
+| Substantive blocker | In Review + symphony-blocked, no dispatch/merge approval; exact paused action/decision |
+| Merged, acceptance pending | In Review without dispatch; merge SHA and remaining acceptance in workpad |
+| Accepted/completed | Done with lifecycle labels removed; verified acceptance, not only a completed turn |
 
-`max_turns: 1` limits turns per invocation, not retries. A failed or normally
-completed invocation can be rescheduled if its issue remains eligible. For a
-blocked issue, record the gap, remove its dispatch label and move it to In
-Review or Backlog as appropriate. Stop the supervised runner if it starts
-retrying a persistent failure. Before restarting after any interruption, inspect
-Linear and resolve eligible/blocked issues; in-memory blocked claims do not
-survive restart. Check the existing issue workspace rather than deleting or
-reusing another issue's checkout.
+Use the five skills. WORKFLOW.md explicitly adapts upstream Symphony examples:
+Aurelio runs its documented npm/theme checks, not make/Mix commands. Pull a remote
+feature branch only after it exists. Use native GitHub operations for PRs,
+reviews, statuses, check runs and merge. The land watcher assumes gh API access
+and CI, so use the skill's manual steps when those assumptions do not hold.
 
-SHO-2 through SHO-15 remain undispatched. Before later work, reconcile SHO-2
-against the existing verified baseline and SHO-3 against the accepted explicit
-CLI workflow. Do not reacquire Trade or install automatic synchronization to
-satisfy historical wording. Review the workflow's SHO-1-only restriction and
-read-only policy explicitly before approving any future implementation issue.
+Review the exact current head, checks, feedback and actual GitHub requirements.
+Do not invent a successful review or override branch protection. With no hosted
+CI, state that explicitly and record local verification and review; absence of
+checks is not green CI. Routine independent agent review can satisfy project
+review policy when no human approval is required. Required human review remains
+binding. Do not merge failing required checks or unreviewed failures. Use the
+native merge tool's expected_head_sha to prevent merging an unreviewed new head.
+No admin bypass, forced updates or auto-merge. Merging code does not deploy Shopify.
 
-## Later Shopify work
+Record validation/review evidence before authorizing a merge phase. If an active
+worker completes routine checks and independent review, it may proceed through
+land without a redundant idle handoff; otherwise the coordinator reactivates
+only the next authorized phase. Head changes invalidate merge-only approval.
 
-No Shopify credentials or operations are needed for this pilot. Later tasks
-need the native Trade baseline, authorized Shopify CLI/Theme Access, explicit
-`SHOPIFY_FLAG_STORE=aurelio-rb.myshopify.com`, exact theme/preview selection,
-and preservation of current theme-editor changes. `SHOPIFY_CLI_THEME_TOKEN`
-authorizes theme access, not general Admin operations. An optional
-`SHOPIFY_FLAG_STORE_PASSWORD` serves applicable visitor-preview flows.
+Update the workpad first, then change state and remove dispatch in one mutation.
+`max_turns: 8` is a turn limit per invocation, not a retry count. Symphony normally
+queues a post-turn continuation check and retries eligible technical failures
+with backoff. Review/blocked/completed tasks must lose eligibility. An operator
+must stop an unreportable deterministic failure rather than leave it retrying.
+Restart loses in-memory blocked claims; Linear state/labels are the durable stop.
 
-Subsequent issues cover B2B companies/buyers, native catalogs/contextual prices,
-native ordering/templates, taxes/markets/shipping and an authorized test-buyer
-journey. Use configure/test/fix cycles and rendered evidence. The existing
-Trade theme `207023571286` is the last documented active development-store
-theme; the historical custom pilot `209046962518` is not the implementation
-target. No custom theme code, Lumen work, real payments, customer contact,
-ownership changes or commercial launch is authorized by this runner setup.
+## Aurelio delivery remains native Trade
+
+SHO-1's sourced baseline audit is preserved. SHO-2 now reconciles the current
+store with the verified baseline and reported five native configuration changes;
+it does not acquire another theme. SHO-3 now verifies the explicit GitHub/CLI
+handoff; it does not enable automatic synchronization. Original wording is
+archived in their comments. Neither issue is automatically dispatched.
+
+The next useful business workstream is SHO-4's authenticated B2B company/buyer
+access journey, after necessary current-state readback and preceding blockers/
+acceptance are resolved. Later native catalogs/pricing, ordering/templates,
+taxes/markets/shipping and rendered desktop/mobile acceptance remain separate
+issues. This runner setup does not establish an operational B2B store.
+
+For authorized Shopify work identify store 84612481366 / aurelio-rb.myshopify.com
+and current native Trade target before any operation. Preserve editor changes.
+Use connected native Shopify capabilities where suitable; Theme Access permits
+theme operations, not general Admin changes. SHOPIFY_CLI_THEME_TOKEN and optional
+SHOPIFY_FLAG_STORE_PASSWORD must be supplied only when explicitly needed through
+a supported scoped mechanism; they remain excluded from this generic Git worker.
+No Lumen, custom theme code, historical pilot revival, real payments, customer
+contact, ownership changes or commercial launch is authorized by runner setup.

@@ -69,13 +69,13 @@ defmodule SymphonyElixir.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:bandit, "~> 1.8"},
+      {:bandit, "~> 1.14.0"},
       {:floki, ">= 0.30.0", only: :test},
       {:lazy_html, ">= 0.1.0", only: :test},
-      {:phoenix, "~> 1.8.0"},
+      {:phoenix, "~> 1.8.9"},
       {:phoenix_html, "~> 4.2"},
-      {:phoenix_live_view, "~> 1.1.0"},
-      {:req, "~> 0.5"},
+      {:phoenix_live_view, "~> 1.1.33"},
+      {:req, "~> 0.6.1"},
       {:jason, "~> 1.4"},
       {:yaml_elixir, "~> 2.12"},
       {:solid, "~> 1.2"},

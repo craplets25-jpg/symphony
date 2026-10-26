@@ -38,7 +38,7 @@ tracker issue can become a dispatch candidate again after restart.
 ## How to use it
 
 For the scoped Aurelio Codespace runner, credential filtering, readiness probes
-and supervised first-worker procedure, see
+and supervised development lifecycle, see
 [`workflows/aurelio/README.md`](workflows/aurelio/README.md).
 
 1. Make sure your codebase is set up to work well with agents: see

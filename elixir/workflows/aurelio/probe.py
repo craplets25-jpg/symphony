@@ -6,11 +6,12 @@ import os
 import queue
 import signal
 import subprocess
+import sys
 import tempfile
 import threading
 import time
 
-from runner import environment
+from runner import SKILLS, environment
 
 
 with tempfile.TemporaryDirectory(prefix="aurelio-app-server-") as workspace:
@@ -63,13 +64,34 @@ with tempfile.TemporaryDirectory(prefix="aurelio-app-server-") as workspace:
             "type": (account.get("account") or {}).get("type"),
             "requiresOpenaiAuth": account.get("requiresOpenaiAuth"),
         }), flush=True)
+        skill_inputs = []
+        if "--skills" in sys.argv:
+            send("skills/list", {"cwds": [workspace], "forceReload": True}, 5)
+            discovered = receive(lambda message: message.get("id") == 5)["result"]["data"]
+            entry = next(entry for entry in discovered if entry["cwd"] == workspace)
+            if entry["errors"]:
+                raise RuntimeError("Skill discovery errors")
+            for name in SKILLS:
+                matches = [skill for skill in entry["skills"] if skill["name"] == name and skill["enabled"]]
+                if len(matches) != 1:
+                    raise RuntimeError("Expected one enabled shared skill: " + name)
+                skill_inputs.append({"type": "skill", "name": name, "path": matches[0]["path"]})
+                print("discovered skill:", name, matches[0]["path"], flush=True)
         send("thread/start", {"cwd": workspace, "sandbox": "read-only", "approvalPolicy": "never"}, 3)
         thread = receive(lambda message: message.get("id") == 3)["result"]["thread"]["id"]
         print("thread:", thread, flush=True)
+        prompt = "Reply with exactly READY. Do not use tools or access files."
+        if skill_inputs:
+            prompt = (
+                "This is an authorized, non-mutating compatibility test. Invoke $linear $commit $pull $push $land "
+                "by reading their supplied instructions, but do not commit, push, create or merge a PR. "
+                "Use the connected native GitHub plugin to read metadata for craplets25-jpg/aurelio-trade. "
+                "Do not use gh API calls. After all five skills and that real native plugin read succeed, reply READY."
+            )
         send("turn/start", {
             "threadId": thread, "cwd": workspace, "approvalPolicy": "never",
             "sandboxPolicy": {"type": "readOnly"},
-            "input": [{"type": "text", "text": "Reply with exactly READY. Do not use tools or access files."}],
+            "input": [{"type": "text", "text": prompt}, *skill_inputs],
         }, 4)
         turn = receive(lambda message: message.get("id") == 4)["result"]["turn"]["id"]
         print("turn:", turn, flush=True)

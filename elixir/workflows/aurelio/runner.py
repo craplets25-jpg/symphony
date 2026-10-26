@@ -13,6 +13,8 @@ import sys
 REPOSITORY = "https://github.com/craplets25-jpg/aurelio-trade.git"
 HERE = Path(__file__).resolve().parent
 ELIXIR = HERE.parent.parent
+SKILLS = ("linear", "commit", "pull", "push", "land")
+SKILLS_SOURCE = ELIXIR.parent / ".codex/skills"
 # An allowlist also excludes credentials added to the Codespace in the future.
 RUNTIME_ENV = {
     "PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "LC_CTYPE", "TERM",
@@ -39,11 +41,27 @@ def credential(action):
         fields.get("protocol") == "https"
         and fields.get("host") == "github.com"
         and fields.get("path") == "craplets25-jpg/aurelio-trade.git"
-        and os.environ.get("AURELIO_REPO_TOKEN")
+        and (os.environ.get("AURELIO_REPO_TOKEN") or os.environ.get("GH_TOKEN"))
     ):
         # Git consumes this pipe. Never invoke this mode interactively with real credentials.
         print("username=x-access-token")
-        print("password=" + os.environ["AURELIO_REPO_TOKEN"])
+        print("password=" + (os.environ.get("AURELIO_REPO_TOKEN") or os.environ["GH_TOKEN"]))
+
+
+def install_skills(root=None):
+    root = Path(root) if root else Path.home() / ".agents/skills"
+    root.mkdir(parents=True, exist_ok=True)
+    for name in SKILLS:
+        source = SKILLS_SOURCE / name
+        if not (source / "SKILL.md").is_file():
+            raise SystemExit(f"Missing required shared skill: {name}")
+        destination = root / f"aurelio-{name}"
+        if destination.is_symlink() and destination.resolve() == source.resolve():
+            continue
+        if destination.exists() or destination.is_symlink():
+            raise SystemExit(f"Preserving existing skill path: {destination}")
+        destination.symlink_to(source, target_is_directory=True)
+    return root
 
 
 def checkout():
@@ -63,7 +81,7 @@ def checkout():
     options += ["-c", "credential.helper=" + helper]
     git = ["git", *options]
     subprocess.run(
-        [*git, "clone", "--single-branch", "--branch", "main", REPOSITORY, "."],
+        [*git, "clone", "--branch", "main", REPOSITORY, "."],
         env=env, check=True, timeout=120,
     )
     # The hook only runs for a new workspace, so this cannot reset previous issue work.
@@ -79,15 +97,36 @@ def checkout():
 
 
 def worker():
-    os.execvpe("codex", ["codex", "app-server"], environment())
+    install_skills()
+    env = environment()
+    if os.environ.get("AURELIO_REPO_TOKEN"):
+        # Git transport only; PR/review/merge operations use the connected GitHub
+        # plugin. Never pass the Codespace's unrelated source-repo token.
+        env["GH_TOKEN"] = os.environ["AURELIO_REPO_TOKEN"]
+        env["GH_REPO"] = "craplets25-jpg/aurelio-trade"
+        env["GH_PROMPT_DISABLED"] = "1"
+        env["GIT_TERMINAL_PROMPT"] = "0"
+        helper = "!" + shlex.join([sys.executable, str(HERE / "runner.py"), "credential"])
+        for index, (key, value) in enumerate([
+            ("credential.helper", ""),
+            ("credential.helper", helper),
+            ("credential.useHttpPath", "true"),
+        ]):
+            env[f"GIT_CONFIG_KEY_{index}"] = key
+            env[f"GIT_CONFIG_VALUE_{index}"] = value
+        env["GIT_CONFIG_COUNT"] = "3"
+    os.execvpe("codex", [
+        "codex", "-c", 'approvals_reviewer="auto_review"', "app-server",
+    ], env)
 
 
 def start(arguments):
-    for name in ("LINEAR_API_KEY", "CODEX_ACCESS_TOKEN"):
+    for name in ("LINEAR_API_KEY", "CODEX_ACCESS_TOKEN", "AURELIO_REPO_TOKEN"):
         if not os.environ.get(name):
             raise SystemExit(f"Missing {name}; no dispatch started")
     if not (ELIXIR / "bin/symphony").is_file():
         raise SystemExit("Build Symphony first with mise exec -- mix build")
+    install_skills()
     env = environment({"LINEAR_API_KEY", "AURELIO_REPO_TOKEN", "GITHUB_TOKEN", "GH_TOKEN"})
     env["AURELIO_RUNNER"] = str(HERE / "runner.py")
     env["SYMPHONY_WORKSPACE_ROOT"] = os.environ.get(
@@ -110,7 +149,9 @@ if __name__ == "__main__":
         checkout()
     elif command == "worker":
         worker()
+    elif command == "skills":
+        print(install_skills(arguments[0] if arguments else None))
     elif command == "start":
         start(arguments)
     else:
-        raise SystemExit("Usage: runner.py {checkout|worker|start [Symphony options]}")
+        raise SystemExit("Usage: runner.py {skills [root]|checkout|worker|start [Symphony options]}")

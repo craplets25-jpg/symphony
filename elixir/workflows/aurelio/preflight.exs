@@ -18,6 +18,9 @@ true = settings.tracker.kind == "linear"
 true = settings.tracker.project_slug == "aurelio-native-shopify-b2b-store-clean-build-2b55b884582b"
 true = settings.tracker.required_labels == ["symphony-dispatch-approved"]
 true = settings.agent.max_concurrent_agents == 1
+true = settings.agent.max_turns == 8
+true = settings.codex.thread_sandbox == "workspace-write"
+true = settings.codex.turn_sandbox_policy["type"] == "workspaceWrite"
 true = "LINEAR_API_KEY" in settings.tracker.secret_environment_names
 IO.puts("Workflow scope, dispatch label, concurrency and tracker-secret filtering: PASS")
 
@@ -25,8 +28,8 @@ query = """
 {
   viewer { organization { name urlKey } }
   project(id: "2849ae33-d00f-45fd-a4ab-fd277672b529") {
-    name
-    issues(first: 30) {
+    id name
+    issues(first: 50) {
       nodes { identifier state { name } labels(first: 20) { nodes { name } } }
       pageInfo { hasNextPage }
     }
@@ -41,16 +44,18 @@ query = """
 true = data["viewer"]["organization"]["urlKey"] == "workspace-ben"
 issues = data["project"]["issues"]["nodes"]
 false = data["project"]["issues"]["pageInfo"]["hasNextPage"]
-true = length(issues) == 15
+true = data["project"]["id"] == "2849ae33-d00f-45fd-a4ab-fd277672b529"
 
 eligible =
   Enum.filter(issues, fn issue ->
     issue["state"]["name"] in settings.tracker.active_states and
-      Enum.any?(issue["labels"]["nodes"], &(&1["name"] == "symphony-dispatch-approved"))
+      Enum.any?(issue["labels"]["nodes"], fn label ->
+        String.downcase(String.trim(label["name"])) == "symphony-dispatch-approved"
+      end)
   end)
 
 [] = eligible
-IO.puts("Authenticated Aurelio inventory: 15 issues, zero eligible; PASS")
+IO.puts("Authenticated Aurelio inventory: #{length(issues)} issues, zero eligible; PASS")
 
 for states <- [settings.tracker.active_states, settings.tracker.terminal_states] do
   {:ok, found} = SymphonyElixir.Linear.Client.fetch_issues_by_states(states)

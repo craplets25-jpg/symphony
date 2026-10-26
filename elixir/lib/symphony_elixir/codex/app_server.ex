@@ -122,15 +122,7 @@ defmodule SymphonyElixir.Codex.AppServer do
           {:error, reason} ->
             Logger.warning("Codex session ended with error for #{issue_context(issue)} session_id=#{session_id}: #{inspect(reason)}")
 
-            emit_message(
-              on_message,
-              :turn_ended_with_error,
-              %{
-                session_id: session_id,
-                reason: reason
-              },
-              metadata
-            )
+            emit_turn_failure(on_message, reason, session_id, metadata)
 
             {:error, reason}
         end
@@ -145,6 +137,21 @@ defmodule SymphonyElixir.Codex.AppServer do
   @spec stop_session(session()) :: :ok
   def stop_session(%{port: port}) when is_port(port) do
     stop_port(port)
+  end
+
+  defp emit_turn_failure(_on_message, {event, _payload}, _session_id, _metadata)
+       when event in [:approval_required, :turn_input_required] do
+    # Preserve the original blocker event/payload for the orchestrator's DOWN handling.
+    :ok
+  end
+
+  defp emit_turn_failure(on_message, reason, session_id, metadata) do
+    emit_message(
+      on_message,
+      :turn_ended_with_error,
+      %{session_id: session_id, reason: reason},
+      metadata
+    )
   end
 
   defp validate_workspace_cwd(workspace, nil) when is_binary(workspace) do

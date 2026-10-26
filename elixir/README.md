@@ -37,6 +37,10 @@ tracker issue can become a dispatch candidate again after restart.
 
 ## How to use it
 
+For the scoped Aurelio Codespace runner, credential filtering, readiness probes
+and supervised development lifecycle, see
+[`workflows/aurelio/README.md`](workflows/aurelio/README.md).
+
 1. Make sure your codebase is set up to work well with agents: see
    [Harness engineering](https://openai.com/index/harness-engineering/).
 2. Get a new personal token in Linear via Settings → Security & access → Personal API keys, and

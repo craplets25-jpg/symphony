@@ -342,10 +342,15 @@ defmodule SymphonyElixir.AppServerTest do
         labels: ["backend"]
       }
 
+      test_pid = self()
+      on_message = fn message -> send(test_pid, {:app_server_message, message}) end
+
       assert {:error, {:turn_input_required, payload}} =
-               AppServer.run(workspace, "Needs input", issue)
+               AppServer.run(workspace, "Needs input", issue, on_message: on_message)
 
       assert payload["method"] == "turn/input_required"
+      assert_received {:app_server_message, %{event: :turn_input_required, payload: ^payload}}
+      refute_received {:app_server_message, %{event: :turn_ended_with_error}}
     after
       File.rm_rf(test_root)
     end
@@ -416,7 +421,7 @@ defmodule SymphonyElixir.AppServerTest do
     end
   end
 
-  test "app server fails when command execution approval is required under safer defaults" do
+  test "app server approval events block the orchestrator without scheduling a retry" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -456,6 +461,7 @@ defmodule SymphonyElixir.AppServerTest do
       File.chmod!(codex_binary, 0o755)
 
       write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
         workspace_root: workspace_root,
         codex_command: "#{codex_binary} app-server"
       )
@@ -467,13 +473,48 @@ defmodule SymphonyElixir.AppServerTest do
         description: "Ensure safer defaults do not auto approve requests",
         state: "In Progress",
         url: "https://example.org/issues/MT-89",
-        labels: ["backend"]
+        labels: ["backend"],
+        dispatchable: true
       }
 
+      orchestrator_name = Module.concat(__MODULE__, :ApprovalRequiredOrchestrator)
+      orchestrator = start_supervised!({Orchestrator, name: orchestrator_name})
+      ref = make_ref()
+      test_pid = self()
+      Application.put_env(:symphony_elixir, :memory_tracker_issues, [issue])
+
+      :sys.replace_state(orchestrator, fn state ->
+        entry = %{
+          pid: test_pid,
+          ref: ref,
+          identifier: issue.identifier,
+          issue: issue,
+          session_id: nil,
+          started_at: DateTime.utc_now()
+        }
+
+        %{state | running: %{issue.id => entry}, claimed: MapSet.put(state.claimed, issue.id)}
+      end)
+
+      on_message = fn message ->
+        send(test_pid, {:app_server_message, message})
+        send(orchestrator, {:codex_worker_update, issue.id, message})
+      end
+
       assert {:error, {:approval_required, payload}} =
-               AppServer.run(workspace, "Handle approval request", issue)
+               AppServer.run(workspace, "Handle approval request", issue, on_message: on_message)
 
       assert payload["method"] == "item/commandExecution/requestApproval"
+      assert_received {:app_server_message, %{event: :approval_required, payload: ^payload}}
+      refute_received {:app_server_message, %{event: :turn_ended_with_error}}
+
+      send(orchestrator, {:DOWN, ref, :process, self(), {:shutdown, :approval_required}})
+      state = :sys.get_state(orchestrator)
+
+      refute Map.has_key?(state.running, issue.id)
+      refute Map.has_key?(state.retry_attempts, issue.id)
+      assert MapSet.member?(state.claimed, issue.id)
+      assert %{error: "codex turn requires approval", last_codex_event: :approval_required} = state.blocked[issue.id]
     after
       File.rm_rf(test_root)
     end

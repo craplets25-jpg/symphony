@@ -103,6 +103,17 @@ chmod +x ./symphony-v0.0.1-macos_arm64
 ./symphony-v0.0.1-macos_arm64 ./WORKFLOW.md
 ```
 
+## Linear HTTP transport
+
+Linear requests honor `https_proxy` / `HTTPS_PROXY` for HTTPS endpoints and
+`http_proxy` / `HTTP_PROXY` for HTTP endpoints. Nonempty lowercase values take
+precedence. Use an `http://` proxy URL; HTTPS endpoints use a CONNECT tunnel with
+normal TLS verification. Proxy URL userinfo supplies Basic proxy authentication.
+`no_proxy` / `NO_PROXY` accepts comma-separated hosts, domain suffixes, optional
+ports, and `*`. Without a proxy, connections remain direct. A configured malformed
+or unsupported proxy returns `:invalid_linear_proxy` without logging its value.
+These settings apply to polling and the native `linear_graphql` tool.
+
 ## Configuration
 
 Pass a custom workflow file path to `./bin/symphony` when starting the service:

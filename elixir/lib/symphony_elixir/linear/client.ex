@@ -5,6 +5,7 @@ defmodule SymphonyElixir.Linear.Client do
 
   require Logger
   alias SymphonyElixir.Config
+  alias SymphonyElixir.Linear.Transport
   alias SymphonyElixir.Tracker.Issue
 
   @issue_page_size 50
@@ -385,11 +386,13 @@ defmodule SymphonyElixir.Linear.Client do
   end
 
   defp post_graphql_request(payload, headers, endpoint) do
-    Req.post(endpoint,
-      headers: headers,
-      json: payload,
-      connect_options: [timeout: 30_000]
-    )
+    with {:ok, connect_options} <- Transport.connect_options(endpoint) do
+      Req.post(endpoint,
+        headers: headers,
+        json: payload,
+        connect_options: connect_options
+      )
+    end
   end
 
   defp decode_linear_response(response, assignee_filter) do

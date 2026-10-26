@@ -12,8 +12,9 @@ and [DEPENDENCY-REVIEW.md](DEPENDENCY-REVIEW.md) for remaining advisory exposure
 
 Use the Symphony fork's `elixir` directory. Install mise from its official
 installer if missing, reviewing the downloaded script before running it.
-Until the setup PRs land, restore branch `chore/aurelio-development-lifecycle`;
-a new Codespace on fork main will not automatically contain unmerged changes.
+Restore the Symphony fork's `main` branch, which includes the first-worker
+runner and complete development lifecycle. Before updating an existing checkout,
+inspect git status and preserve any local work; fetch and fast-forward main.
 
 ```sh
 export PATH="$HOME/.local/bin:$PATH"
